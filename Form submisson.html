@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Database Logger</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+            padding: 2rem;
+            max-width: 550px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+        h2 { margin-top: 0; color: #1e293b; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        label { display: block; margin-bottom: 0.4rem; font-weight: 600; font-size: 0.9rem; }
+        input, select, textarea {
+            width: 100%;
+            padding: 0.6rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.375rem;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+        }
+        textarea { resize: vertical; height: 80px; }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 0.375rem;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary { background-color: #2563eb; color: white; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-setup { background-color: #10b981; color: white; margin-bottom: 1.5rem; }
+        .btn-setup:hover { background-color: #059669; }
+        #statusMessage {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+        .success { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .info { background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>📋 Student Registry Database</h2>
+
+    <div id="setupSection">
+        <p style="font-size: 0.9rem; color: #64748b;">To begin, you must create a new local file or link an existing Excel sheet to this page session.</p>
+        <button class="btn-setup" id="linkFileBtn">📁 Link / Create Excel Target File</button>
+    </div>
+
+    <form id="studentForm" class="hidden" onsubmit="handleFormSubmit(event)">
+        <div class="form-group">
+            <label for="studentName">Student Name</label>
+            <input type="text" id="studentName" required placeholder="John Doe">
+        </div>
+
+        <div class="form-group">
+            <label for="dob">Date of Birth</label>
+            <input type="date" id="dob" required>
+        </div>
+
+        <div class="form-group">
+            <label for="stream">Stream / Department</label>
+            <select id="stream" required>
+                <option value="">-- Select Stream --</option>
+                <option value="Science">Science</option>
+                <option value="Commerce">Commerce</option>
+                <option value="Arts">Arts</option>
+                <option value="Engineering">Engineering</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="year">Academic Year</label>
+            <input type="number" id="year" min="1" max="4" required placeholder="e.g., 1, 2, 3">
+        </div>
+
+        <div class="form-group">
+            <label for="remarks">Remarks</label>
+            <textarea id="remarks" placeholder="Enter additional background info..."></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary">💾 Append Entry to Local Excel File</button>
+    </form>
+
+    <div id="statusMessage"></div>
+</div>
+
+<script>
+    let fileHandle = null;
+
+    const setupSection = document.getElementById('setupSection');
+    const studentForm = document.getElementById('studentForm');
+    const statusMessage = document.getElementById('statusMessage');
+    const linkFileBtn = document.getElementById('linkFileBtn');
+
+    // 1. Ask user to pick/create a permanent file pointer on their local disk
+    linkFileBtn.addEventListener('click', async () => {
+        try {
+            if (window.showSaveFilePicker) {
+                fileHandle = await window.showSaveFilePicker({
+                    suggestedName: 'Student_Database.xlsx',
+                    types: [{
+                        description: 'Excel Spreadsheet',
+                        accept: {'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']}
+                    }]
+                });
+
+                // Switch interface components
+                setupSection.classList.add('hidden');
+                studentForm.classList.remove('hidden');
+                showStatus("Local file linked successfully! You can now start entering records.", "success");
+            } else {
+                alert("Your browser does not fully support the File System Access API. Please use a desktop browser like Chrome, Edge, or Opera.");
+            }
+        } catch (err) {
+            console.error(err);
+            showStatus("File linkage configuration canceled.", "info");
+        }
+    });
+
+    // 2. Handle data submission loops
+    async function handleFormSubmit(event) {
+        event.preventDefault();
+        if (!fileHandle) {
+            alert("No spreadsheet target link detected. Refresh and reload.");
+            return;
+        }
+
+        // Build object array map out of raw DOM inputs
+        const newRecord = {
+            "Timestamp": new Date().toLocaleString(),
+            "Name": document.getElementById('studentName').value.trim(),
+            "Date of Birth": document.getElementById('dob').value,
+            "Stream": document.getElementById('stream').value,
+            "Year": parseInt(document.getElementById('year').value, 10),
+            "Remarks": document.getElementById('remarks').value.trim()
+        };
+
+        showStatus("Updating local disk storage allocation...", "info");
+
+        try {
+            let workbook;
+            let currentData = [];
+
+            // Attempt to read the existing file content first
+            try {
+                const file = await fileHandle.getFile();
+                const arrayBuffer = await file.arrayBuffer();
+
+                if (arrayBuffer.byteLength > 0) {
+                    workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    // Pull pre-existing rows back into memory arrays
+                    currentData = XLSX.utils.sheet_to_json(worksheet);
+                }
+            } catch (readError) {
+                // File is empty or newly instantiated; proceed with clean array structure creation
+                console.log("Instantiating base index structure.");
+            }
+
+            // Append our single row entry directly to the cumulative layout array
+            currentData.push(newRecord);
+
+            // Rebuild Workbook object map layers completely
+            const newWorksheet = XLSX.utils.json_to_sheet(currentData);
+
+            // Adjust layouts for basic data visualization clean presentation
+            newWorksheet['!cols'] = [{wch: 22}, {wch: 25}, {wch: 15}, {wch: 15}, {wch: 10}, {wch: 30}];
+
+            if (!workbook) {
+                workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, newWorksheet, "Students");
+            } else {
+                workbook.Sheets[workbook.SheetNames[0]] = newWorksheet;
+            }
+
+            // Convert JavaScript spreadsheet model back to a binary stream
+            const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+            // Stream the update back down to the identical local file address
+            const writable = await fileHandle.createWritable();
+            await writable.write(excelBuffer);
+            await writable.close();
+
+            showStatus(`Successfully added entry for "${newRecord.Name}" to file!`, "success");
+
+            // Reset input values for subsequent entry submission loop
+            document.getElementById('studentForm').reset();
+
+        } catch (err) {
+            console.error(err);
+            showStatus("Write failure. Please verify file access permissions are open.", "info");
+        }
+    }
+
+    function showStatus(text, type) {
+        statusMessage.innerText = text;
+        statusMessage.className = `status ${type}`;
+        statusMessage.style.display = 'block';
+    }
+</script>
+
+</body>
+</html>
